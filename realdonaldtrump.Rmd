@@ -1,0 +1,209 @@
+---
+title: "Twitter Model @RealDonaldTrump"
+author: "Bridger Gordon"
+date: "4/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(lubridate)
+
+rawtweets_1 <- read_csv("trumptweets.csv")
+
+```
+
+
+```{r, warning = FALSE}
+
+# Load in the data and mutate using lubridate
+tweets <- rawtweets_1 %>%
+  mutate(date = parse_date_time(created_at, orders = "%m/%d/%y %h:%m")) %>%
+  mutate(retweet = ifelse(is_retweet == "TRUE", 1, 0)) %>%
+  mutate_at(c(7), ~replace(., is.na(.), 0)) %>%
+  mutate(week = week(date)) %>%
+  mutate(hour = hour(date)) %>%
+  mutate(minute = minute(date)) %>%
+  mutate(fractime = (minute + hour*60)/60) %>%
+  mutate(weekday = weekdays(date)) %>%
+  filter(!is.na(weekday))
+
+expected_tweets <- tweets %>%
+  group_by(weekday, hour) %>%
+  # Calculate an expected number of tweets at a given time during a week, given past history
+  # This count is divided by the number of weeks in the dataset, which is 254 in this one (since June 16, 2015)
+  summarize(count = n()/254)
+
+exp_week_tweets <- expected_tweets %>%
+  ungroup() %>%
+  # Put weekday in numerical version
+  mutate(numerical_weekday = ifelse(weekday == "Wednesday", 0, 
+                          ifelse(weekday == "Thursday", 1,
+                                 ifelse(weekday == "Friday", 2,
+                                        ifelse(weekday == "Saturday", 3,
+                                               ifelse(weekday == "Sunday", 4,
+                                                      ifelse(weekday == "Monday", 5, 6))))))) %>%
+  mutate(fracweek = ((numerical_weekday*24)+hour)/24) %>%
+  arrange(fracweek) %>%
+  # Cumulative count of expected number of tweets
+  mutate(cumulative_count = cumsum(count))
+
+```
+
+```{r}
+
+## Poisson Probability Distribution
+
+# Current Number of Tweets
+current_tweet_num = 146
+
+# Remember always subtract Wednesday morning totals to go to the end (6.4803150)
+wednesday_morning = 6.4803150
+
+# Overall Expected Weekly Tweets
+overall_expected = 99.1220472
+
+# Current Weekday: Tuesday
+# Current Time: 0
+expected_num <- exp_week_tweets %>%
+  filter(weekday == "Tuesday") %>%
+  filter(hour == "0") %>%
+  select(cumulative_count) %>%
+  pull()
+
+## Calculate expected remaining
+expected_tweet_num = expected_num - wednesday_morning
+expected_tweet_remaining = overall_expected + wednesday_morning - expected_tweet_num
+
+## Testing Probability of Hitting Tweet Number, just uncomment
+# ppois(25, lambda = expected_tweet_remaining)
+# ppois(25, lambda = expected_tweet_remaining, lower=FALSE)
+
+## Interval probability
+
+ppois(149 - current_tweet_num, lambda = expected_tweet_remaining)
+
+1 - 
+  ppois(150 - current_tweet_num, lambda = expected_tweet_remaining) - 
+  ppois(159 - current_tweet_num, lambda = expected_tweet_remaining, lower=FALSE)
+
+1 - 
+  ppois(160 - current_tweet_num, lambda = expected_tweet_remaining) - 
+  ppois(169 - current_tweet_num, lambda = expected_tweet_remaining, lower=FALSE)
+
+1 - 
+  ppois(170 - current_tweet_num, lambda = expected_tweet_remaining) - 
+  ppois(179 - current_tweet_num, lambda = expected_tweet_remaining, lower=FALSE)
+
+1 - 
+  ppois(180 - current_tweet_num, lambda = expected_tweet_remaining) - 
+  ppois(189 - current_tweet_num, lambda = expected_tweet_remaining, lower=FALSE)
+
+1 - 
+  ppois(190 - current_tweet_num, lambda = expected_tweet_remaining) - 
+  ppois(199 - current_tweet_num, lambda = expected_tweet_remaining, lower=FALSE)
+
+1 - 
+  ppois(200 - current_tweet_num, lambda = expected_tweet_remaining) - 
+  ppois(209 - current_tweet_num, lambda = expected_tweet_remaining, lower=FALSE)
+
+1 - 
+  ppois(210 - current_tweet_num, lambda = expected_tweet_remaining) - 
+  ppois(219 - current_tweet_num, lambda = expected_tweet_remaining, lower=FALSE)
+
+ppois(220 - current_tweet_num, lambda = expected_tweet_remaining, lower=FALSE)
+
+# Fees-adjusted probabilities
+
+market_prob = 0.10
+profit = (1 - market_prob) * 0.9
+fee_adj_probability = market_prob/(profit + market_prob)
+
+
+```
+
+```{r}
+
+## Graph of Probabilities
+poisson <- tibble("tweets" = 0:25, "pdf" = 0, "cdf" = 0) %>%
+  mutate_at("pdf", ~(ppois(tweets, expected_tweet_remaining) - ppois(tweets - 1, expected_tweet_remaining))) %>%
+  mutate_at("cdf", ~(ppois(tweets, expected_tweet_remaining))) %>%
+  mutate(tweets = tweets + current_tweet_num)
+
+ggplot(poisson, aes(x=tweets, y = pdf)) +
+  geom_point() +
+  geom_line() +
+  labs(title = "Poisson Distribution of Tweets",
+       x = "Final Tweet Number",
+       y = "Probability")
+
+ggplot(poisson, aes(x=tweets, y = cdf)) +
+  geom_point() +
+  geom_line() +
+  labs(title = "Cumulative Poisson Distribution of Tweets",
+       x = "Final Tweet Number",
+       y = "Cumulative Probability")
+
+
+
+```
+
+
+```{r}
+tweets %>%
+  filter(weekday == "Sunday") %>%
+  ggplot(aes(x=fractime)) +
+  geom_histogram(bins = 48) +
+  labs(title = "Sunday") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 25))
+
+tweets %>%
+  filter(weekday == "Monday") %>%
+  ggplot(aes(x=fractime)) +
+  geom_histogram(bins = 48) +
+  labs(title = "Monday") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 25))
+
+tweets %>%
+  filter(weekday == "Tuesday") %>%
+  ggplot(aes(x=fractime)) +
+  geom_histogram(bins = 48) +
+  labs(title = "Tuesday") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 25))
+
+tweets %>%
+  filter(weekday == "Wednesday") %>%
+  ggplot(aes(x=fractime)) +
+  geom_histogram(bins = 48) +
+  labs(title = "Wednesday") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 25))
+
+tweets %>%
+  filter(weekday == "Thursday") %>%
+  ggplot(aes(x=fractime)) +
+  geom_histogram(bins = 48) +
+  labs(title = "Thursday") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 25))
+
+tweets %>%
+  filter(weekday == "Friday") %>%
+  ggplot(aes(x=fractime)) +
+  geom_histogram(bins = 48) +
+  labs(title = "Friday") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 25))
+
+tweets %>%
+  filter(weekday == "Saturday") %>%
+  ggplot(aes(x=fractime)) +
+  geom_histogram(bins = 48) +
+  labs(title = "Saturday") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 25))
+
+ggplot(exp_week_tweets, aes(x=fracweek, y=cumsum(count))) +
+  geom_line() + 
+  labs("Cumulative Expected Tweets During Week")
+
+
+
+```
